@@ -1,0 +1,6 @@
+apache-airflow-providers-snowflake
+apache-airflow-providers-mysql
+openpyxl
+selenium
+webdriver_manager
+psycopg2-binary
