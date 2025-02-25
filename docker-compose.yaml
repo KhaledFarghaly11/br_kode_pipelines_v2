@@ -1,0 +1,111 @@
+version: '3.11'
+
+services:
+  postgres:
+    image: postgres:13
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-db-volume-upv:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+    networks:
+      - airflow-network
+
+  airflow-webserver:
+    image: apache/airflow:2.10.4
+    command: webserver
+    entrypoint: ["/opt/airflow/script/entrypoint.sh"]
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__WEBSERVER_BASE_URL: http://localhost:8080
+      AIRFLOW__CORE__DEFAULT_TIMEZONE: "Africa/Cairo"
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "True"
+      AIRFLOW__WEBSERVER__RBAC: "False"
+    logging:
+      options:
+        max-size: 10m
+        max-file: "3"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./config:/opt/airflow/config
+      - ./data:/opt/airflow/data
+      - ./pipelines:/opt/airflow/pipelines
+      - ./paymob_data:/opt/airflow/paymob_data
+      - ./script/entrypoint.sh:/opt/airflow/script/entrypoint.sh
+      - ./requirements.txt:/opt/airflow/requirements.txt
+      # - ./config/airflow.cfg:/opt/airflow/airflow.cfg
+      # - ./config/webserver_config.py:/opt/airflow/webserver_config.py
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: [ "CMD", "curl", "--fail", "http://localhost:8080/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - airflow-network
+
+  airflow-scheduler:
+    image: apache/airflow:2.10.4
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      # airflow-webserver:
+      #   condition: service_healthy
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./config:/opt/airflow/config
+      - ./data:/opt/airflow/data
+      - ./pipelines:/opt/airflow/pipelines
+      - ./paymob_data:/opt/airflow/paymob_data
+      - ./requirements.txt:/opt/airflow/requirements.txt
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__DEFAULT_TIMEZONE: "Africa/Cairo"
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "True"
+      AIRFLOW__WEBSERVER__RBAC: "False"
+    command: bash -c "pip install --no-cache-dir -r ./requirements.txt && airflow db upgrade && airflow scheduler"
+    networks:
+      - airflow-network
+
+  selenium:
+    container_name: remote_chromedriver
+    image: seleniarm/standalone-chromium:latest
+    networks:
+      - airflow-network
+    ports:
+      - "4444:4444"
+    volumes:
+      - ./paymob_data:/home/seluser/Downloads
+    environment:
+      - SE_NODE_MAX_SESSIONS=5
+    shm_size: "2gb"
+
+volumes:
+  postgres-db-volume-upv:
+
+networks:
+  airflow-network:
+    driver: bridge
