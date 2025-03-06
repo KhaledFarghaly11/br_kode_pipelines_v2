@@ -7,19 +7,8 @@ from datetime import datetime, timedelta
 from airflow.providers.mysql.hooks.mysql import MySqlHook
 from airflow.providers.snowflake.hooks.snowflake import SnowflakeHook
 from snowflake.connector.pandas_tools import write_pandas
-from filelock import FileLock
+from filelock import FileLock, Timeout
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from pipelines.app_pipeline import (
-    SPORTS_TABLES,
-    DINING_TABLES,
-    ACCESS_TABLES,
-    NOTIFICATIONS_TABLES,
-    WALLETS_PAYMENT_TABLES,
-    MEMBERS_TABLES,
-    COMMUNITIES_TABLES,
-    OTHER_TABLES
-)
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -104,15 +93,17 @@ def app_table_info(snowflake_conn_id, table_name, extracted_data):
         """
         cursor.execute(insert_sql)
         meta_data = {'TABLE_NAME': [table_name], 'SNOWFLAKE_ROW_COUNT': [row_count]}
-
-        mode = 'a' if os.path.exists(SF_META_COUNT_PATH) else 'w'
-        header = False if os.path.exists(SF_META_COUNT_PATH) else True
         sf_meta_df = pd.DataFrame(meta_data, columns=['TABLE_NAME', 'SNOWFLAKE_ROW_COUNT'])
 
         # Write the DataFrame to CSV incrementally
         # Atomic write to CSV with file lock
-        lock = FileLock(SF_META_COUNT_PATH + ".lock")
-        with lock:
+        lock_path = SF_META_COUNT_PATH + ".lock"
+        with FileLock(lock_path, timeout=10):
+            # Check file existence within the lock to prevent race conditions
+            file_exists = os.path.exists(SF_META_COUNT_PATH)
+            mode = 'a' if file_exists else 'w'
+            header = not file_exists
+
             sf_meta_df.to_csv(
                 SF_META_COUNT_PATH,
                 mode=mode,
@@ -169,31 +160,6 @@ def extract_data(mysql_conn_id, snowflake_conn_id, table_name, last_updated_colu
         
     hook = MySqlHook(mysql_conn_id=mysql_conn_id)
 
-    # Get source row count before extraction
-    count_query = f"SELECT COUNT(*) FROM db.{table_name}"
-    source_count = hook.get_first(count_query)[0]
-    meta_data = {'TABLE_NAME': [table_name], 'SOURCE_ROW_COUNT': [source_count]}
-
-    mode = 'a' if os.path.exists(META_COUNT_PATH) else 'w'
-    header = False if os.path.exists(META_COUNT_PATH) else True
-    meta_df = pd.DataFrame(meta_data, columns=['TABLE_NAME', 'SOURCE_ROW_COUNT'])
-
-    # Write the DataFrame to CSV incrementally
-    lock = FileLock(META_COUNT_PATH + ".lock")
-    with lock:
-        meta_df.to_csv(
-            META_COUNT_PATH,
-            mode=mode,
-            header=header,
-            index=False
-        )
-    # meta_df.to_csv(
-    #     META_COUNT_PATH,
-    #     mode=mode,
-    #     header=header,
-    #     index=False
-    # )
-
     column_query = f"""DESCRIBE db.{table_name};"""
     columns = hook.get_records(column_query)
     field_types = {col[0].lower(): col[1].lower() for col in columns}
@@ -220,6 +186,35 @@ def extract_data(mysql_conn_id, snowflake_conn_id, table_name, last_updated_colu
         logger.info(f"Incremental query: {query}")
     else:
         query = f"SELECT * FROM {table_name}"
+
+    # Get source row count before extraction
+    count_query = f"SELECT COUNT(*) FROM db.{table_name}"
+    source_count = hook.get_first(count_query)[0]
+    meta_data = {'TABLE_NAME': [table_name], 'SOURCE_ROW_COUNT': [source_count]}
+    meta_df = pd.DataFrame(meta_data, columns=['TABLE_NAME', 'SOURCE_ROW_COUNT'])
+
+    # mode = 'a' if os.path.exists(META_COUNT_PATH) else 'w'
+    # header = False if os.path.exists(META_COUNT_PATH) else True
+
+    # Write the DataFrame to CSV incrementally
+    lock_path = META_COUNT_PATH + ".lock"
+    with FileLock(lock_path, timeout=10):
+
+        # Check file existence within the lock to prevent race conditions
+        file_exists = os.path.exists(META_COUNT_PATH)
+        mode = 'a' if file_exists else 'w'
+        header = not file_exists
+
+        meta_df.to_csv(
+            META_COUNT_PATH,
+            mode=mode,
+            header=header,
+            index=False
+        )
+
+         # Immediate flush for better reliability
+        if hasattr(meta_df, '_buffer'):
+            meta_df._buffer.flush()
 
     df = hook.get_pandas_df(query)
     df.to_csv(output_path, index=False)
@@ -599,18 +594,25 @@ def compare_stats(mysql_data_path,sf_data_path):
     logger.info("Validation Results with Tolerance:\n%s", comparison)
     return compare_output_path
 
-def load_comparison_to_snowflake(snowflake_conn_id,compare_stats):
+def load_comparison_to_snowflake(snowflake_conn_id, compare_stats, sports_tables,
+    dining_tables,
+    access_tables,
+    notifications_tables,
+    wallets_payment_tables,
+    members_tables,
+    communities_tables,
+    other_tables, **kwargs):
     df_comparison = pd.read_csv(compare_stats)
     
     module_mapping = {
-        'SPORTS': SPORTS_TABLES,
-        'DINING': DINING_TABLES,
-        'ACCESS': ACCESS_TABLES,
-        'NOTIFICATIONS': NOTIFICATIONS_TABLES,
-        'WALLETS_PAYMENT': WALLETS_PAYMENT_TABLES,
-        'MEMBERS': MEMBERS_TABLES,
-        'COMMUNITIES': COMMUNITIES_TABLES,
-        'OTHER': OTHER_TABLES
+        'SPORTS': sports_tables,
+        'DINING': dining_tables,
+        'ACCESS': access_tables,
+        'NOTIFICATIONS': notifications_tables,
+        'WALLETS_PAYMENT': wallets_payment_tables,
+        'MEMBERS': members_tables,
+        'COMMUNITIES': communities_tables,
+        'OTHER': other_tables
     }
     SOURCE_NAME = 'APP'
     # Snowflake connection
