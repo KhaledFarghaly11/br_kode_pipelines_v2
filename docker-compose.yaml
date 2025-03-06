@@ -21,6 +21,18 @@ services:
     networks:
       - airflow-network
 
+  redis:  # NEW: Add Redis broker
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    networks:
+      - airflow-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   airflow-webserver:
     image: apache/airflow:2.10.4
     command: webserver
@@ -29,14 +41,18 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:  # NEW: Add dependency
+        condition: service_healthy
     environment:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
-      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__CELERY__BROKER_URL: redis://redis:6379/0
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql+psycopg2://airflow:airflow@postgres/airflow
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW__WEBSERVER_BASE_URL: http://localhost:8080
       AIRFLOW__CORE__DEFAULT_TIMEZONE: "Africa/Cairo"
-      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "True"
-      AIRFLOW__WEBSERVER__RBAC: "False"
+      # AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "True"
+      # AIRFLOW__WEBSERVER__RBAC: "False"
     logging:
       options:
         max-size: 10m
@@ -69,8 +85,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      # airflow-webserver:
-      #   condition: service_healthy
+      redis:  # NEW: Add dependency
+        condition: service_healthy
     volumes:
       - ./dags:/opt/airflow/dags
       - ./logs:/opt/airflow/logs
@@ -82,11 +98,40 @@ services:
       - ./requirements.txt:/opt/airflow/requirements.txt
     environment:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
-      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__CELERY__BROKER_URL: redis://redis:6379/0
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql+psycopg2://airflow:airflow@postgres/airflow
       AIRFLOW__CORE__DEFAULT_TIMEZONE: "Africa/Cairo"
       AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "True"
       AIRFLOW__WEBSERVER__RBAC: "False"
     command: bash -c "pip install --no-cache-dir -r ./requirements.txt && airflow db upgrade && airflow scheduler"
+    networks:
+      - airflow-network
+
+  airflow-worker:  # NEW: Add Celery worker
+    image: apache/airflow:2.10.4
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__CORE__EXECUTOR: CeleryExecutor
+      AIRFLOW__CELERY__BROKER_URL: redis://redis:6379/0
+      AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__CORE__DEFAULT_TIMEZONE: "Africa/Cairo"
+    command: bash -c "pip install -r requirements.txt && airflow celery worker"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./config:/opt/airflow/config
+      - ./data:/opt/airflow/data
+      - ./pipelines:/opt/airflow/pipelines
+      - ./paymob_data:/opt/airflow/paymob_data
+      - ./requirements.txt:/opt/airflow/requirements.txt
     networks:
       - airflow-network
 
