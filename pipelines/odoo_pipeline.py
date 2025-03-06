@@ -10,7 +10,8 @@ from datetime import datetime, timedelta
 from airflow.exceptions import AirflowException
 from airflow.providers.snowflake.hooks.snowflake import SnowflakeHook
 from snowflake.connector.pandas_tools import write_pandas
-from filelock import FileLock
+from itertools import chain
+from filelock import FileLock, Timeout
 
 
 # Configure logging
@@ -138,15 +139,16 @@ def odoo_table_info(table):
         cursor.execute(insert_sql)
 
         meta_data = {'TABLE_NAME': [table], 'SNOWFLAKE_ROW_COUNT': [row_count]}
-
-        mode = 'a' if os.path.exists(SF_META_COUNT_PATH) else 'w'
-        header = False if os.path.exists(SF_META_COUNT_PATH) else True
         sf_meta_df = pd.DataFrame(meta_data, columns=['TABLE_NAME', 'SNOWFLAKE_ROW_COUNT'])
 
-        # Write the DataFrame to CSV incrementally
-        # Atomic write to CSV with file lock
-        lock = FileLock(SF_META_COUNT_PATH + ".lock")
-        with lock:
+
+        lock_path = SF_META_COUNT_PATH + ".lock"
+        with FileLock(lock_path, timeout=10):
+            # Check file existence within the lock to prevent race conditions
+            file_exists = os.path.exists(SF_META_COUNT_PATH)
+            mode = 'a' if file_exists else 'w'
+            header = not file_exists
+
             sf_meta_df.to_csv(
                 SF_META_COUNT_PATH,
                 mode=mode,
@@ -209,122 +211,6 @@ def get_last_load_dates(table):
 
     
 
-# def extract_data(table_name, include_columns):
-#     target_table = 'hr.employee' if table_name == 'hr.employee.archived' else table_name
-
-#     if is_incremental:
-#         last_load_dates = get_last_load_dates(snowflake_conn_id, table_name)
-#         # for last_load_data in last_load_dates:
-#         table_name = last_load_dates.get("table_name").lower()
-#         last_update = last_load_dates.get("last_load_date")
-#         if last_update:
-#             condition = ['write_date','>',last_update]
-
-#             output_exctracted_incremental_path = f'./data/raw/odoo/{target_table}_incremental.csv'
-
-#             count = models.execute_kw(db, uid, password, target_table,
-#                                 'search_count', [[condition]] if condition else [[]])
-            
-#             logger.info(f"Incremental load count: {count}")
-            
-#             fields = models.execute_kw(db, uid, password, target_table,
-#                                 'fields_get', [], {'attributes': ['string', 'help', 'type']})
-            
-#             fields_subset = [field for field in include_columns if field in fields]
-#             field_types = {field: fields[field]['type'] for field in fields_subset}
-            
-#             # Initialize an empty DataFrame with the desired columns
-#             # df = pd.DataFrame(columns=fields_subset)
-            
-#             # Generate offsets for batch processing
-#             offsets = range(0, count + 1, LIMIT)
-
-#             with open(output_exctracted_path, 'w') as f:
-#                 # Write header
-#                 # df.to_csv(f, index=False)
-#                 pd.DataFrame(columns=fields_subset).to_csv(f, index=False)
-
-#                 for offset in offsets:
-#                     logger.info(f"Starting batch: {offset}")
-#                     try:
-#                         data = models.execute_kw(db, uid, password, target_table, 'search_read', 
-#                                                 [[condition]] if condition else [[]],
-#                                                 {'fields': fields_subset, 'limit': LIMIT, 'offset': offset})
-#                         # data_list.extend(data)
-
-#                         # Create DataFrame from the collected data
-#                         df_batch  = pd.DataFrame(data, columns=fields_subset)
-
-#                         # Replace False values with empty strings
-#                         df_batch.replace(to_replace=False, value='', inplace=True)
-                        
-#                         # Append the batch to the CSV file
-#                         df_batch.to_csv(f, mode='a', header=False, index=False)
-
-#                         # Sleep to avoid overloading the API (adjust as needed)
-#                         time.sleep(1)
-#                     except IncompleteRead:
-#                         logger.warning(f"IncompleteRead error at offset {offset}. Retrying...")
-#                         continue  
-#         else:
-#             logger.warning("No write_date value found!")
-
-#         logger.info(f"Total record count: {count}, Module name: {target_table}")
-#         return output_exctracted_incremental_path, target_table, field_types 
-#     else:
-#         condition = ['active', '=', False] if table_name == 'hr.employee.archived' else None
-
-#         output_exctracted_path = f'./data/raw/{target_table}.csv'
-
-#         count = models.execute_kw(db, uid, password, target_table,
-#                                   'search_count', [[condition]] if condition else [[]])
-
-#         fields = models.execute_kw(db, uid, password, target_table,
-#                                    'fields_get', [], {'attributes': ['string', 'help', 'type']})
-        
-        
-#         fields_subset = [field for field in include_columns if field in fields]
-#         field_types = {field: fields[field]['type'] for field in fields_subset}
-        
-        
-#         # Generate offsets for batch processing
-#         offsets = range(0, count + 1, LIMIT)
-        
-#         with open(output_exctracted_path, 'w') as f:
-#             # Write header
-#             # df.to_csv(f, index=False)
-#             pd.DataFrame(columns=fields_subset).to_csv(f, index=False)
-
-#             for offset in offsets:
-#                 logger.info(f"Starting batch: {offset}")
-#                 try:
-#                     data = models.execute_kw(db, uid, password, target_table, 'search_read', 
-#                                             [[condition]] if condition else [[]],
-#                                             {'fields': fields_subset, 'limit': LIMIT, 'offset': offset})
-#                     # data_list.extend(data)
-
-#                     # Create DataFrame from the collected data
-#                     df_batch  = pd.DataFrame(data, columns=fields_subset)
-
-#                     # Replace False values with empty strings
-#                     df_batch.replace(to_replace=False, value='', inplace=True)
-                    
-#                     # Append the batch to the CSV file
-#                     df_batch.to_csv(f, mode='a', header=False, index=False)
-
-#                     # Sleep to avoid overloading the API (adjust as needed)
-#                     time.sleep(1)
-#                 except IncompleteRead:
-#                     logger.warning(f"IncompleteRead error at offset {offset}. Retrying...")
-#                     continue       
-        
-
-#         logger.info(f"Total record count: {count}, Module name: {target_table}")
-#         return output_exctracted_path, target_table, field_types  
-    
-#     return 'Exctracted data successfully'
-
-
 
 def extract_data(table_name: str, 
                  include_columns: list,
@@ -358,7 +244,8 @@ def _handle_incremental_load(target_table: str,
         logger.warning("No valid incremental load data found")
         # return './data/raw/odoo/default.csv', target_table, {}
 
-    condition = ['write_date', '>', last_update]
+    cond = [[['write_date', '>', last_update],['active', '=', False]]]
+    condition = list(chain(*cond)) if original_table_name == 'hr.employee.archived' else [['write_date', '>', last_update]]
     output_path = f'./data/raw/odoo/{original_table_name}_incremental.csv'
     
     field_types, count = _process_data(
@@ -378,7 +265,7 @@ def _handle_full_load(target_table: str,
                     include_columns: list,
                     logger) -> Tuple[str, str, dict]:
     """Handle full table data load."""
-    condition = ['active', '=', False] if original_table_name == 'hr.employee.archived' else None
+    condition = [['active', '=', False]] if original_table_name == 'hr.employee.archived' else None
     output_path = f'./data/raw/odoo/{original_table_name}.csv'
     
     field_types, count = _process_data(
@@ -402,10 +289,17 @@ def _process_data(target_table: str,
     """Common data processing logic for both incremental and full loads."""
     try:
         # Get record count
+        count_all_records = models.execute_kw(
+            db, uid, password, target_table,
+            'search_count', 
+            [[condition[1]]] if original_table_name == 'hr.employee.archived' else [[]]
+        )
+        
+        # Get record count
         count = models.execute_kw(
             db, uid, password, target_table,
             'search_count', 
-            [[condition]] if condition else [[]]
+            [condition] if condition else [[]]
         )
 
         if original_table_name == "res.partner":
@@ -422,15 +316,16 @@ def _process_data(target_table: str,
         table = table_name.replace('.', '_')
         table = table.upper()
 
-        meta_data = {'TABLE_NAME': [table], 'SOURCE_ROW_COUNT': [count]}
-
-        mode = 'a' if os.path.exists(ODOO_META_COUNT_PATH) else 'w'
-        header = False if os.path.exists(ODOO_META_COUNT_PATH) else True
+        meta_data = {'TABLE_NAME': [table], 'SOURCE_ROW_COUNT': [count_all_records]}
         meta_df = pd.DataFrame(meta_data, columns=['TABLE_NAME', 'SOURCE_ROW_COUNT'])
 
-        # Write the DataFrame to CSV incrementally
-        lock = FileLock(ODOO_META_COUNT_PATH + ".lock")
-        with lock:
+        lock_path = ODOO_META_COUNT_PATH + ".lock"
+        with FileLock(lock_path, timeout=10):
+            # Check file existence within the lock to prevent race conditions
+            file_exists = os.path.exists(ODOO_META_COUNT_PATH)
+            mode = 'a' if file_exists else 'w'
+            header = not file_exists
+
             meta_df.to_csv(
                 ODOO_META_COUNT_PATH,
                 mode=mode,
@@ -484,7 +379,7 @@ def _write_data_to_csv(target_table: str,
                 data = models.execute_kw(
                     db, uid, password, target_table,
                     'search_read',
-                    [[condition]] if condition else [[]],
+                    [condition] if condition else [[]],
                     {'fields': columns, 'limit': LIMIT, 'offset': offset}
                 )
                 
@@ -947,8 +842,39 @@ def compare_stats(odoo_data_path,sf_data_path):
     logger.info("Validation Results with Tolerance:\n%s", comparison)
     return compare_output_path
 
-def load_comparison_to_snowflake(snowflake_conn_id,compare_stats):
+# def aggregate_metrics(**kwargs):
+#     ti = kwargs['ti']
+#     all_metrics = ti.xcom_pull(task_ids=None, key='task_metrics')
+    
+#     module_metrics = defaultdict(lambda: {
+#         'success': 0,
+#         'failure': 0,
+#         'durations': []
+#     })
+    
+#     for metric in all_metrics:
+#         module = metric['module']  # Assuming you pass module in task params
+#         module_metrics[module]['durations'].append(metric['duration'])
+#         if metric['status'] == 'success':
+#             module_metrics[module]['success'] += 1
+#         else:
+#             module_metrics[module]['failure'] += 1
+    
+#     # Calculate average durations
+#     result = {}
+#     for module, data in module_metrics.items():
+#         result[module] = {
+#             'success': data['success'],
+#             'failure': data['failure'],
+#             'avg_duration': sum(data['durations'])/len(data['durations']) if data['durations'] else 0
+#         }
+    
+#     return result
+
+def load_comparison_to_snowflake(snowflake_conn_id, compare_stats, **kwargs):
     df_comparison = pd.read_csv(compare_stats)
+
+    ti = kwargs['ti']
 
     module_mapping = {
         'HR': HR_MODULE,
@@ -965,15 +891,16 @@ def load_comparison_to_snowflake(snowflake_conn_id,compare_stats):
     
     # Create the target table if it doesn't exist
     create_table_sql = """
-    CREATE TABLE IF NOT EXISTS KODE_STAGING.ETL_CONFIG.COMPARISON_RESULTS (
-        SOURCE_NAME VARCHAR,
-        MODULE_NAME VARCHAR,
-        TABLE_NAME VARCHAR,
-        SOURCE_ROW_COUNT NUMBER,
-        SNOWFLAKE_ROW_COUNT NUMBER,
-        STATUS VARCHAR,
-        LOAD_TIMESTAMP TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
-    );
+        CREATE TABLE IF NOT EXISTS KODE_STAGING.ETL_CONFIG.COMPARISON_RESULTS (
+            ID VARCHAR DEFAULT UUID_STRING(),
+            SOURCE_NAME VARCHAR,
+            MODULE_NAME VARCHAR,
+            TABLE_NAME VARCHAR,
+            SOURCE_ROW_COUNT NUMBER,
+            SNOWFLAKE_ROW_COUNT NUMBER,
+            STATUS VARCHAR,
+            LOAD_TIMESTAMP TIMESTAMP_NTZ DEFAULT CURRENT_TIMESTAMP()
+        );
     """
     sf_hook.run(create_table_sql)
 
@@ -982,13 +909,13 @@ def load_comparison_to_snowflake(snowflake_conn_id,compare_stats):
         # Determine module name based on table name (case-insensitive lookup)
         table_lower = row['TABLE_NAME'].lower()
         if table_lower == "contacts":
-            table_name = "res.partner"
-        elif table_lower == "journal.entry":
-            table_name = "account.move"
-        elif table_lower == "journal.item":
-            table_name = "account.move.line"
-        elif table_lower == "pdc.payment":
-            table_name = "sr.pdc.payment"
+            table_name = "res_partner"
+        elif table_lower == "journal_entry":
+            table_name = "account_move"
+        elif table_lower == "journal_item":
+            table_name = "account_move_line"
+        elif table_lower == "pdc_payment":
+            table_name = "sr_pdc_payment"
         else:
             table_name = table_lower
 
