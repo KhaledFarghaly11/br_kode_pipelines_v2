@@ -6,12 +6,14 @@ import json
 import pandas as pd
 
 from datetime import datetime, timedelta
-
+print('test1')
 from selenium import webdriver
-from selenium.webdriver.support.ui import WebDriverWait
+# from selenium.webdriver.support.ui import WebDriverWait
+# from selenium.webdriver import Remote
+from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
-
+print('test2')
 from airflow.providers.snowflake.hooks.snowflake import SnowflakeHook
 from snowflake.connector.pandas_tools import write_pandas
 
@@ -28,7 +30,8 @@ TRACKING_TABLE = "ETL_CONFIG.TABLE_COUNT"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 DOWNLOAD_TIMEOUT = 500  # Maximum wait time for download in seconds
-SELENIUM_HUB_URL = 'http://remote_chromedriver:4444/wd/hub'
+# SELENIUM_HUB_URL = 'http://remote_chromedriver:4444/wd/hub'
+SELENIUM_HUB_URL = 'http://selenium:4444/wd/hub'
 DOWNLOAD_DIR = './paymob_data'  # Match container path
 
 def load_json_file(file_path):

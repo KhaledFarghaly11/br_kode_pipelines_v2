@@ -336,10 +336,6 @@ def extract_data(snowflake_conn_paymob, original_table_name):
         
         time.sleep(1)
 
-        # Login
-        # WebDriverWait(driver, 50).until(
-        #     EC.presence_of_element_located((By.ID, "user-name"))
-        # ).send_keys(username)
         uname = driver.find_element(By.ID, "user-name") 
         uname.send_keys(username)
         
@@ -349,9 +345,6 @@ def extract_data(snowflake_conn_paymob, original_table_name):
 
         time.sleep(2)
 
-        # WebDriverWait(driver, 50).until(
-        #         EC.element_to_be_clickable((By.XPATH, '//button[@type = "submit"]'))
-        # ).click()
         submit_button = WebDriverWait(driver, 10).until(EC.element_to_be_clickable(
                                                     (By.XPATH, '//button[@type = "submit"]')))
         submit_button.click()
@@ -377,46 +370,24 @@ def extract_data(snowflake_conn_paymob, original_table_name):
                 logger.warning("No valid last load timestamp found")
             
             time.sleep(5)
-            # Click on the report type
-            # WebDriverWait(driver, 50).until(
-            #     EC.presence_of_element_located((By.XPATH, '//select[@placeholder ="Choose Type..."]'))
-            # ).click()
+
             report_type_button = WebDriverWait(driver, 10).until(EC.presence_of_element_located(
                                             (By.XPATH, '//select[@placeholder ="Choose Type..."]')))
             report_type_button.click()
 
-            # Choose transactions from the dropdown
-            # WebDriverWait(driver, 50).until(
-            #     EC.presence_of_element_located((By.XPATH, '//option[@value ="transactions"]'))
-            # ).click()
+
             report_type_button_option = WebDriverWait(driver, 10).until(EC.presence_of_element_located(
                                             (By.XPATH, '//option[@value ="transactions"]')))
             report_type_button_option.click()
 
-            # Identify the element containing calender from date
-            # WebDriverWait(driver, 50).until(
-            #     EC.presence_of_element_located((By.XPATH, '//a[@name ="date"]'))
-            # ).click()
-
-
-            # print(f'//div[@title="{last_load}"]/div/span[contains(text(), "{day}")]')
-            # # Find the desired day cell with title "dd Month Year" like "26 Mar 2024"
-            # WebDriverWait(driver, 50).until(
-            #     EC.presence_of_element_located((By.XPATH, f'//div[@title="{last_load}"]/div/span[contains(text(), "{day}")]'))
-            # ).click()
-
             
-            # # Find the "OK" button
-            # WebDriverWait(driver, 50).until(
-            #     EC.presence_of_element_located((By.XPATH, '//span[contains(text(), "OK")]'))
-            # ).click()
-
             calender_container = WebDriverWait(driver, 10).until(EC.presence_of_element_located(
                 (By.XPATH, '//a[@name ="date"]')))
             calender_container.click()
 
+
             # Find the desired day cell with title "dd Month Year" like "26 Mar 2024"
-            day_container = WebDriverWait(driver, 10).until(EC.presence_of_element_located(
+            day_container = WebDriverWait(driver, 20).until(EC.presence_of_element_located(
                 (By.XPATH, f'//div[@title="{last_load}"]/div/span[contains(text(), "{day}")]')))
             day_container.click()
 
@@ -427,28 +398,16 @@ def extract_data(snowflake_conn_paymob, original_table_name):
 
             time.sleep(2)
             
-            # Identify the element containing calender To date
-            # WebDriverWait(driver, 50).until(
-            #     EC.presence_of_element_located((By.XPATH, '//a[@name ="date range"]'))
-            # ).click()
             calender_container = WebDriverWait(driver, 10).until(EC.presence_of_element_located(
                 (By.XPATH, '//a[@name ="date range"]')))
             calender_container.click()
 
             time.sleep(2)
 
-            # WebDriverWait(driver, 50).until(
-            #     EC.presence_of_element_located((By.XPATH, '//span[contains(text(), "OK")]'))
-            # ).click()
-
             ok_container = WebDriverWait(driver, 10).until(EC.presence_of_element_located(
                 (By.XPATH, '//span[contains(text(), "OK")]')))
             ok_container.click()
 
-            # Find the "Generate" button
-            # WebDriverWait(driver, 50).until(
-            #     EC.presence_of_element_located((By.XPATH, '//button[1][contains(text(), "Generate")]'))
-            # ).click()
             generate_container = WebDriverWait(driver, 10).until(EC.presence_of_element_located(
                 (By.XPATH, '//button[1][contains(text(), "Generate")]')))
             generate_container.click()
@@ -460,10 +419,6 @@ def extract_data(snowflake_conn_paymob, original_table_name):
         driver.get(transactions_url)
         time.sleep(10)
         
-        # Find the "Generate" button
-        # WebDriverWait(driver, 50).until(
-        #     EC.presence_of_element_located((By.XPATH, '//table/tbody/tr[1]/td[5]/button[contains(text(), "Download")]'))
-        # ).click()
 
         download_container = WebDriverWait(driver, 10).until(EC.presence_of_element_located(
             (By.XPATH, '//table/tbody/tr[1]/td[5]/button[contains(text(), "Download")]')))
